@@ -106,7 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
           List<Task> filteredTasks;
 
-          if (selectedFilter == "wykonane") {
+          if (selectedFilter == "wykonanee") {
             filteredTasks =
                 tasks.where((task) => task.done).toList();
           } else if (selectedFilter == "do zrobienia") {
