@@ -1,7 +1,19 @@
-import 'package:flutter/material.dart';
-import 'TaskApiService.dart';
+import 'dart:math';
 
-void main() {
+import 'package:flutter/material.dart';
+import 'package:v_h/models/task.dart';
+import 'package:v_h/services/TaskLocalDatabase.dart';
+import 'package:v_h/services/TaskSyncService.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
+
+void main() async {
+
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Hive.initFlutter();
+
+  await Hive.openBox("tasks");
+
   runApp(const MyApp());
 }
 
@@ -32,8 +44,12 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    tasksFuture = loadTasks();
+  }
 
-    tasksFuture = TaskApiService.fetchTasks();
+  Future<List<Task>> loadTasks() async {
+    await TaskSyncService.loadInitialDataIfNeeded();
+    return TaskLocalDatabase.getTasks();
   }
 
   @override
@@ -59,9 +75,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: const Text("Anuluj"),
                       ),
                       TextButton(
-                        onPressed: () {
+                        onPressed: () async {
+                          await TaskLocalDatabase.deleteAllTasks();
+
                           setState(() {
-                            tasksFuture = Future.value([]);
+                            tasksFuture = loadTasks();
                           });
 
                           Navigator.pop(context);
@@ -213,13 +231,18 @@ class _HomeScreenState extends State<HomeScreen> {
                     final task = filteredTasks[index];
 
                     return Dismissible(
-                      key: ValueKey(task.hashCode),
+                      key: ValueKey(task.id),
 
                       direction: DismissDirection.endToStart,
 
-                      onDismissed: (direction) {
+                      onDismissed: (direction) async {
+
+                        await TaskLocalDatabase.deleteTask(
+                          task.id,
+                        );
+
                         setState(() {
-                          filteredTasks.remove(task);
+                          tasksFuture = loadTasks();
                         });
 
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -239,9 +262,22 @@ class _HomeScreenState extends State<HomeScreen> {
 
                         done: task.done,
 
-                        onChanged: (value) {
+                        onChanged: (value) async {
+
+                          final updatedTask = Task(
+                            id: task.id,
+                            title: task.title,
+                            deadline: task.deadline,
+                            priority: task.priority,
+                            done: value ?? false,
+                          );
+
+                          await TaskLocalDatabase.updateTask(
+                            updatedTask,
+                          );
+
                           setState(() {
-                            task.done = value!;
+                            tasksFuture = loadTasks();
                           });
                         },
 
@@ -256,11 +292,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
 
                           if (updatedTask != null) {
-                            setState(() {
-                              final index =
-                              filteredTasks.indexOf(task);
 
-                              filteredTasks[index] = updatedTask;
+                            await TaskLocalDatabase.updateTask(
+                              updatedTask,
+                            );
+
+                            setState(() {
+                              tasksFuture = loadTasks();
                             });
                           }
                         },
@@ -296,11 +334,10 @@ class _HomeScreenState extends State<HomeScreen> {
           );
 
           if (newTask != null) {
-            final currentTasks = await tasksFuture;
+            await TaskLocalDatabase.addTask(newTask);
 
             setState(() {
-              tasksFuture =
-                  Future.value([...currentTasks, newTask]);
+              tasksFuture = loadTasks();
             });
           }
         },
@@ -440,10 +477,11 @@ class AddTaskScreen extends StatelessWidget {
               child: ElevatedButton(
                 onPressed: () {
                   final newTask = Task(
+                    id: Random().nextInt(1000000),
                     title: titleController.text,
                     deadline: deadlineController.text,
-                    done: false,
                     priority: priorityController.text,
+                    done: false,
                   );
 
                   Navigator.pop(context, newTask);
@@ -530,6 +568,7 @@ class EditTaskScreen extends StatelessWidget {
                 onPressed: () {
 
                   final updatedTask = Task(
+                    id: task.id,
                     title: titleController.text,
                     deadline: deadlineController.text,
                     done: task.done,
@@ -547,18 +586,4 @@ class EditTaskScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-class Task {
-  final String title;
-  final String deadline;
-  bool done;
-  final String priority;
-
-  Task({
-    required this.title,
-    required this.deadline,
-    required this.done,
-    required this.priority,
-  });
 }
